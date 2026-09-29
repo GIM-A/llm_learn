@@ -1,0 +1,28 @@
+# 敏感信息
+.env
+
+# 虚拟环境
+.venv/
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 向量库（云端自动生成）
+chroma_db_langchain/
+
+# PyCharm
+.idea/
+
+# 实验 notebook
+*.ipynb
+
+# FastAPI 后端（部署用不到）
+rag_api.py
+app.py
+
+# 空文件
+remard.1
