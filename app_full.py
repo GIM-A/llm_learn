@@ -51,7 +51,7 @@ vectorstore = init_rag()
 
 # ========== RAG 函数 ==========
 def rag_chat(question):
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 20})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 50})   # 20 → 50
     candidates = retriever.invoke(question)
 
     url = "https://ws-u2shhcjc8lz52mor.cn-beijing.maas.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
@@ -65,7 +65,7 @@ def rag_chat(question):
             "query": question,
             "documents": [c.page_content for c in candidates]
         },
-        "parameters": {"top_n": 3, "return_documents": True}
+        "parameters": {"top_n": 10, "return_documents": True}  # 3 → 10
     }
     resp = requests.post(url, headers=headers, json=data)
     reranked = resp.json()["output"]["results"]
@@ -74,10 +74,12 @@ def rag_chat(question):
 
     prompt = f"""请根据以下资料回答问题。如果资料里没有答案，就说"资料中未提到"。
 
-资料：
-{context}
+    资料：
+    {context}
 
-问题：{question}"""
+    问题：{question}
+
+    要求：如果问题涉及"有哪些"、"列出"等，请尽量列全资料中提到的所有项。"""
 
     llm_resp = dashscope.Generation.call(model="qwen-turbo", prompt=prompt)
     return llm_resp.output["text"]
