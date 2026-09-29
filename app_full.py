@@ -9,14 +9,19 @@ from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # ========== 加载环境 ==========
-# 本地有 .env 就读，云端直接读环境变量
-if os.path.exists(r"D:\llm_learn\.env"):
-    load_dotenv(dotenv_path=r"D:\llm_learn\.env")
-else:
-    load_dotenv()  # 云端：从环境变量读
+try:
+    if "DASHSCOPE_API_KEY" in st.secrets:
+        os.environ["DASHSCOPE_API_KEY"] = st.secrets["DASHSCOPE_API_KEY"]
+    else:
+        raise KeyError("No key in secrets")
+except Exception:
+    # 本地：从 .env 读
+    if os.path.exists(r"D:\llm_learn\.env"):
+        load_dotenv(dotenv_path=r"D:\llm_learn\.env")
+    else:
+        load_dotenv()
 
 dashscope.api_key = os.environ["DASHSCOPE_API_KEY"]
-
 # ========== 初始化向量库（缓存，只加载一次）==========
 @st.cache_resource
 def init_rag():
