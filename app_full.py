@@ -29,7 +29,7 @@ def init_rag():
 
     if not os.path.exists("./chroma_db_langchain"):
         print("向量库不存在，重新生成...")
-        loader = TextLoader("my_doc.txt", encoding="utf-8")
+        loader = TextLoader("crawled_data.txt", encoding="utf-8")
         docs = loader.load()
         splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
         chunks = splitter.split_documents(docs)
