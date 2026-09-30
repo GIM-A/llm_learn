@@ -3,7 +3,10 @@ langchain
 langchain-community
 langchain-chroma
 langchain-text-splitters
+langgraph
 dashscope
 python-dotenv
 requests
 chromadb
+beautifulsoup4
+tavily-python
