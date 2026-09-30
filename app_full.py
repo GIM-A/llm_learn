@@ -50,7 +50,7 @@ def init_rag():
 vectorstore = init_rag()
 
 # ========== RAG 函数 ==========
-def rag_chat(question):
+def rag_chat(question, history=None):
     retriever = vectorstore.as_retriever(search_kwargs={"k": 50})   # 20 → 50
     candidates = retriever.invoke(question)
 
@@ -71,8 +71,16 @@ def rag_chat(question):
     reranked = resp.json()["output"]["results"]
 
     context = "\n\n".join([item["document"]["text"] for item in reranked])
+    #拼历史对话
+    history_text = ""
+    if history:
+        for msg in history[-6:]:  # 只取最近 6 条，避免 prompt 太长
+            role = "用户" if msg["role"] == "user" else "助手"
+            history_text += f"{role}：{msg['content']}\n"
 
     prompt = f"""请根据以下资料回答问题。如果资料里没有答案，就说"资料中未提到"。
+    历史对话：
+    {history_text}
 
     资料：
     {context}
@@ -98,7 +106,7 @@ if prompt := st.chat_input("问点什么..."):
     st.chat_message("user").write(prompt)
 
     with st.spinner("思考中..."):
-        answer = rag_chat(prompt)
+        answer = rag_chat(prompt, history=st.session_state.messages[:-1])
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
     st.chat_message("assistant").write(answer)
