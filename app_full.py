@@ -2,7 +2,7 @@ import os
 import streamlit as st
 import requests
 import dashscope
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.embeddings import DashScopeEmbeddings
@@ -96,11 +96,14 @@ def calculator(expression: str) -> str:
         return f"计算失败：{e}"
 
 # ========== 工具3：获取当前时间 ==========
+from datetime import datetime, timezone, timedelta
+
 @tool
 def get_current_time() -> str:
     """获取当前时间。当用户问时间时调用此工具。"""
-    return f"当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-
+    beijing_tz = timezone(timedelta(hours=8))
+    now = datetime.now(beijing_tz)
+    return f"当前时间：{now.strftime('%Y年%m月%d日 %H:%M')}"
 # ========== 工具4：联网搜索 ==========
 @tool
 def search_web(query: str) -> str:
