@@ -37,7 +37,7 @@ def init_rag():
         print("向量库不存在，重新生成...")
         loader = TextLoader("crawled_data.txt", encoding="utf-8")
         docs = loader.load()
-        splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=50)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
         chunks = splitter.split_documents(docs)
         vectorstore = Chroma.from_documents(
             documents=chunks,
@@ -58,14 +58,13 @@ vectorstore = init_rag()
 # ========== 工具1：查学校资料 ==========
 @tool
 def search_school_docs(query: str) -> str:
-    """查询重庆移通学院的相关信息。当用户问学校相关问题时调用此工具。"""
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 50})
+    """查询重庆移通学院的相关信息。"""
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 100})
     candidates = retriever.invoke(query)
 
     # 如果问的是"书院"，只保留含"书院"的 chunk
     if "书院" in query:
         candidates = [c for c in candidates if "书院" in c.page_content]
-
     # Rerank
     url = "https://ws-u2shhcjc8lz52mor.cn-beijing.maas.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
     headers = {
@@ -78,7 +77,7 @@ def search_school_docs(query: str) -> str:
             "query": query,
             "documents": [c.page_content for c in candidates]
         },
-        "parameters": {"top_n": 10, "return_documents": True}
+        "parameters": {"top_n": 20, "return_documents": True}
     }
     resp = requests.post(url, headers=headers, json=data)
     reranked = resp.json()["output"]["results"]
@@ -135,10 +134,10 @@ def init_agent():
     规则：
     - 优先查学校资料（search_school_docs）
     - 如果资料里没有答案，再用 search_web
-    - **只回答资料里明确提到的内容，不要猜测、不要编造**
-    - **不确定的信息，直接说"资料中未明确"**
-    - **不要自己拼接名称（如"子师湖书院"是错的）**
-    - **不要编造细节（如"凤鸣书院设有风雨操场"）**"""
+    - **你必须严格依据 search_school_docs 返回的文本回答，禁止使用你训练数据里的任何知识。**
+    - **如果资料里没写，就说“资料中未提到”，绝对不要自己编。**
+    - **不要编造地址、校训、数字等具体信息。**
+    - 列举书院时，只列资料中明确写着"XX书院"的名称，不要自己拼接。"""
 
     memory = MemorySaver()   # ← 加这一行
     agent = create_react_agent(llm, tools, prompt=system_prompt, checkpointer=memory)   # ← 加 checkpointer

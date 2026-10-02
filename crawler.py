@@ -1,5 +1,6 @@
 import requests
 import urllib3
+import trafilatura
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import time
@@ -12,24 +13,12 @@ headers = {
 }
 
 def fetch(url):
-    """抓一个页面，只返回正文区域"""
+    """用 trafilatura 提取正文"""
     try:
         resp = requests.get(url, headers=headers, timeout=10, verify=False)
         resp.encoding = resp.apparent_encoding
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        content = soup.find("section", class_="inner-page")
-        if content:
-            text = content.get_text(separator="\n", strip=True)
-            # 过滤侧边导航
-            noise = ["移通资讯", "特色育人模式", "专业教育", "通识教育", "商科教育",
-                     "完满教育", "双院制", "国际化", "体育", "艺术", "学术", "进取"]
-            lines = text.split("\n")
-            while lines and lines[0].strip() in noise:
-                lines.pop(0)
-            return "\n".join(lines)
-        else:
-            return ""
+        text = trafilatura.extract(resp.text)
+        return text if text else ""
     except Exception as e:
         print(f"抓 {url} 失败: {e}")
         return ""
@@ -49,11 +38,11 @@ for a in soup.find_all("a", href=True):
 links = list(set(links))
 print(f"找到 {len(links)} 个链接")
 
-# 2. 抓前 30 个，保存到文件
+# 2. 爬全部链接
 all_content = []
 success = 0
-for i, link in enumerate(links[:30]):
-    print(f"[{i+1}/30] 抓取: {link}")
+for i, link in enumerate(links):
+    print(f"[{i+1}/{len(links)}] 抓取: {link}")
     text = fetch(link)
     if len(text) < 100:
         print(f"  跳过（内容太短）")
@@ -64,8 +53,8 @@ for i, link in enumerate(links[:30]):
     time.sleep(1)
 
 # 3. 保存到文件
-with open("crawled_data.txt", "w", encoding="utf-8") as f:
+with open("crawled_data_full.txt", "w", encoding="utf-8") as f:
     f.write("\n\n".join(all_content))
 
-print(f"\n✅ 完成！成功抓取 {success} 个页面，保存到 crawled_data.txt")
+print(f"\n✅ 完成！成功抓取 {success} 个页面，保存到 crawled_data_full.txt")
 print(f"   总字符数: {sum(len(c) for c in all_content)}")
