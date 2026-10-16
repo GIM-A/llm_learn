@@ -6,11 +6,12 @@
      CARD-3.3 清空对话按钮
      CARD-3.4 加载动画（"思考中"三点，首字到达前可见）
      CARD-3.5 逐段注释（就你现在看到的这些）
+     CARD-3.6 真·多轮：请求时把历史一起发给后端
 
-   重要说明（范围边界）：
-     后端 POST /chat/stream 目前只接收 { question }，不接受历史对话。
-     所以本文件的 history 数组只负责"把聊过的话留在屏幕上"，
-     模型本身看不到前几轮。让模型真正记住上文需要改后端，属于后续卡片。
+   关于 CARD-3.6：
+     后端 /chat/stream 现在接收 { question, history }。
+     history 是"当前问题之前"的对话（role/content 数组），
+     由后端拼成 [system, *history, 当前问题] 交给模型。
    ========================================================= */
 
 /* ---------- 1. 拿到页面上需要用到的元素 ---------- */
@@ -120,27 +121,39 @@ async function sendQuestion(questionOverride, options = {}) {
     // 6.2 正在忙就忽略（双保险，正常情况下发送键已禁用）
     if (busy) return;
 
-    // 6.3 清空输入框
-    //     只有"正常发送"才清；重试时输入框里本来就没东西，别动它
-    if (!isRetry) inputEl.value = "";
+    // 6.3 重试收尾：上一轮失败时已把这条 user 压进了 history，
+    //     这里先弹出来，下面 6.5 会原样再压回去，
+    //     保证 history 里不会出现两条一模一样的提问（验收：断流重试不重复 user）
+    if (isRetry && history.length > 0 && history[history.length - 1].role === "user") {
+        history.pop();
+    }
 
-    // 6.4 记入历史 + 渲染用户气泡
-    //     重试不重复记，否则历史里会出现两条一模一样的问题
+    // 6.4 ⭐ 拍历史快照（CARD-3.6 核心）
+    //     刻意在"把当前问题压进 history"之前取，所以快照里
+    //     只包含当前问题之前的对话；这份快照随请求发给后端。
+    const historySnapshot = history.map((m) => ({ role: m.role, content: m.content }));
+
+    // 6.5 把当前问题记入 history。
+    //     正常发送是新增一条；重试是刚弹出又压回的同一句。
+    history.push({ role: "user", content: question });
+
+    // 6.6 渲染用户气泡：只有正常发送才加。
+    //     重试时不重复渲染，避免界面上出现两条一样的问题。
     if (!isRetry) {
-        history.push({ role: "user", content: question });
+        inputEl.value = "";          // 正常发送才清空输入框
         appendBubble("user", question);
     }
 
-    // 6.5 渲染助手气泡：先显示"思考中"三点，等第一个字到达再替换
+    // 6.7 渲染助手气泡：先显示"思考中"三点，等第一个字到达再替换
     const bubbleEl = appendBubble("assistant");
     bubbleEl.appendChild(createThinkingEl());
 
-    // 6.6 进入"忙碌"状态：禁用发送和输入
+    // 6.8 进入"忙碌"状态：禁用发送和输入
     busy = true;
     sendBtn.disabled = true;
     inputEl.disabled = true;
 
-    // 6.7 记录本次请求属于哪个会话；若中途被"清空"打断，就作废
+    // 6.9 记录本次请求属于哪个会话；若中途被"清空"打断，就作废
     const mySession = sessionId;
 
     // 助手最终文本；用 flag 区分"正常结束"和"中途断开"
@@ -151,15 +164,16 @@ async function sendQuestion(questionOverride, options = {}) {
         const resp = await fetch("/chat/stream", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ question }),   // 后端只认 question 字段
+            // ⭐ 一起带上历史快照，后端据此拼多轮 messages
+            body: JSON.stringify({ question, history: historySnapshot }),
         });
 
-        // 6.8 HTTP 层错误（404 / 500 等）
+        // 6.10 HTTP 层错误（404 / 500 等）
         if (!resp.ok) {
             throw new Error(`服务器返回 HTTP ${resp.status}`);
         }
 
-        // 6.9 读取流式响应体
+        // 6.11 读取流式响应体
         const reader = resp.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
@@ -168,7 +182,7 @@ async function sendQuestion(questionOverride, options = {}) {
         while (true) {
             const { done, value } = await reader.read();
 
-            // 6.10 流结束：跳出循环（是否正常由 finished 标记判断）
+            // 6.12 流结束：跳出循环（是否正常由 finished 标记判断）
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -181,24 +195,24 @@ async function sendQuestion(questionOverride, options = {}) {
                 if (!evt.startsWith("data: ")) continue;
                 const data = evt.slice(6);
 
-                // 6.11 后端明确告知结束
+                // 6.13 后端明确告知结束
                 if (data === "[DONE]") {
                     finished = true;
                     break;
                 }
 
-                // 6.12 后端在生成过程中抛出的异常
+                // 6.14 后端在生成过程中抛出的异常
                 if (data.startsWith("[ERROR]")) {
                     throw new Error(data.slice(8).trim() || "服务端处理出错");
                 }
 
-                // 6.13 正常的一个文本分片：还原被转义的换行符
+                // 6.15 正常的一个文本分片：还原被转义的换行符
                 const text = data.replace(/\\n/g, "\n");
 
                 // 若期间用户点了"清空"，本次请求作废，直接停止写入
                 if (mySession !== sessionId) return;
 
-                // 6.14 第一个分片到达：把"思考中"换成真正的正文
+                // 6.16 第一个分片到达：把"思考中"换成真正的正文
                 if (!firstChunkReceived) {
                     bubbleEl.textContent = "";
                     firstChunkReceived = true;
@@ -212,18 +226,18 @@ async function sendQuestion(questionOverride, options = {}) {
             if (finished) break;
         }
 
-        // 6.15 断流判定：循环结束却没收到 [DONE]，说明连接被中途掐断
+        // 6.17 断流判定：循环结束却没收到 [DONE]，说明连接被中途掐断
         if (!finished) {
             throw new Error("连接中断，回答未完整返回");
         }
 
-        // 6.16 成功：记入历史
+        // 6.18 成功：把这一轮的回答也记入历史，供下一轮当上下文
         if (mySession === sessionId) {
             history.push({ role: "assistant", content: answerText });
         }
 
     } catch (err) {
-        // 6.17 任何异常都在"原地"报错，绝不 alert、不白屏
+        // 6.19 任何异常都在"原地"报错，绝不 alert、不白屏
         if (mySession === sessionId) {
             // 网络层错误（断网等）拿到的是 TypeError，给一句人话
             const msg = (err instanceof TypeError)
@@ -232,7 +246,7 @@ async function sendQuestion(questionOverride, options = {}) {
             renderError(bubbleEl, msg, question);
         }
     } finally {
-        // 6.18 无论成败，恢复可用状态
+        // 6.20 无论成败，恢复可用状态
         busy = false;
         sendBtn.disabled = false;
         inputEl.disabled = false;

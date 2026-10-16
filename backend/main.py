@@ -53,16 +53,20 @@ def health():
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     """非流式接口（保留，用于测试）"""
-    answer = rag.generate_answer(request.question)
+    # 双保险：即便客户端显式传了 history: null，也用 or [] 兜成空列表
+    answer = rag.generate_answer(request.question, request.history or [])
     return ChatResponse(answer=answer)
 
 
 @app.post("/chat/stream")
 def chat_stream(request: ChatRequest):
-    """流式接口：SSE 逐字返回"""
+    """流式接口：SSE 逐字返回（支持多轮历史）"""
+    # 双保险：schemas 已默认空列表，这里再兜一层 None
+    history = request.history or []
+
     def event_generator():
         try:
-            for chunk in rag.stream_answer(request.question):
+            for chunk in rag.stream_answer(request.question, history):
                 # SSE 格式：data: xxx\n\n
                 # 把换行符转义，避免破坏 SSE 格式
                 safe = chunk.replace("\n", "\\n")
