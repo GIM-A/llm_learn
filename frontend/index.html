@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>校园知识库问答</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🏫 校园知识库问答</h1>
+            <p class="subtitle">基于 RAG 的重庆移通学院信息助手</p>
+        </header>
+
+        <div id="messages" class="messages"></div>
+
+        <div class="input-area">
+            <input
+                type="text"
+                id="question-input"
+                placeholder="问我学校的事，比如：学校在哪个城市？"
+                autocomplete="off"
+            />
+            <button id="send-btn">发送</button>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

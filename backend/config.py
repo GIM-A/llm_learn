@@ -25,7 +25,7 @@ RERANK_MODEL = "qwen3-rerank"
 LLM_MODEL = "qwen3.7-flash"
 
 # ========== 5. 检索参数 ==========
-VECTOR_TOP_K = 20      # 向量检索召回条数
+VECTOR_TOP_K = 5      # 向量检索召回条数
 RERANK_TOP_N = 3       # rerank 后保留条数（你评测过，top3 最优）
 
 # ========== 6. API Key ==========

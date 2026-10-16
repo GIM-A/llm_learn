@@ -1,33 +1,61 @@
-"""单独测试 LLM 调用，定位问题"""
+"""诊断 LLM 调用（独立测试）"""
 import sys
 from pathlib import Path
-# 把项目根加入 sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend import config
-import dashscope
+from langchain_openai import ChatOpenAI
 
-print("=" * 50)
-print(f"dashscope 版本：{dashscope.__version__}")
+print(f"模型：{config.LLM_MODEL}")
 print(f"API Key 前 10 位：{config.DASHSCOPE_API_KEY[:10]}...")
 print(f"API Key 长度：{len(config.DASHSCOPE_API_KEY)}")
-print("=" * 50)
+print()
 
-dashscope.api_key = config.DASHSCOPE_API_KEY
+llm = ChatOpenAI(
+    model=config.LLM_MODEL,
+    api_key=config.DASHSCOPE_API_KEY,
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    temperature=0.1,
+)
 
-# 逐个测模型
-for model in ["qwen-turbo-latest", "qwen-turbo", "qwen-plus", "qwen-flash"]:
-    print(f"\n=== 测 {model} ===")
-    try:
-        resp = dashscope.Generation.call(model=model, prompt="你好")
-        print(f"  status_code: {resp.status_code}")
-        print(f"  message: {getattr(resp, 'message', 'N/A')}")
-        print(f"  code: {getattr(resp, 'code', 'N/A')}")
-        print(f"  request_id: {getattr(resp, 'request_id', 'N/A')}")
-        if resp.status_code == 200:
-            print(f"  ✅ output: {resp.output.get('text', 'N/A')}")
-    except Exception as e:
-        print(f"  ❌ 异常：{type(e).__name__}: {e}")
+# ========== 测试1：最简单 ==========
+print("=" * 60)
+print("测试1：llm.invoke('你好')")
+try:
+    response = llm.invoke("你好")
+    print(f"content 类型：{type(response.content)}")
+    print(f"content 值：{response.content!r}")
+    print(f"完整 response 对象：{response}")
+    print(f"response_metadata：{response.response_metadata}")
+    print(f"additional_kwargs：{response.additional_kwargs}")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
 
-print("\n" + "=" * 50)
-print("诊断完毕")
+# ========== 测试2：messages 格式 ==========
+print("\n" + "=" * 60)
+print("测试2：messages 格式")
+try:
+    messages = [
+        {"role": "system", "content": "你是助手"},
+        {"role": "user", "content": "学校在哪个城市？资料：学校地处重庆市。"},
+    ]
+    response = llm.invoke(messages)
+    print(f"content 类型：{type(response.content)}")
+    print(f"content 值：{response.content!r}")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+
+# ========== 测试3：流式 ==========
+print("\n" + "=" * 60)
+print("测试3：流式")
+try:
+    chunks = []
+    for chunk in llm.stream("一句话：中国的首都是"):
+        chunks.append(chunk.content)
+        print(f"  chunk: {chunk.content!r}")
+    print(f"拼接：{''.join(chunks)!r}")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
