@@ -1,15 +1,35 @@
-name: 每日爬虫更新
+name: 每日爬虫更新（只爬取 + 清洗，不提交语料）
+
+# 说明（扩语料 + 去重卡片）：
+#   全量语料体积大（几百页 × 上千字，可达 MB 级），提交回仓库会把 git 撑爆，
+#   所以本工作流**不再 git add / commit 任何语料**，只负责：
+#     1) 定时校验 crawler.py + clean_corpus.py 能跑通，并把统计打进 Actions 日志
+#     2) 需要新鲜语料时手动触发跑一次，产物留在 runner 上（运行结束即丢弃）
+#
+#   刻意不跑 build_index.py —— 它要调 DashScope embedding（需要 API Key），
+#   CI 里没有配 secret；入库属于部署侧动作，不应在 CI 做。
+#
+#   产物落点（均在 runner 上，不进仓库）：
+#     data/crawled_data_full.txt  ← 原始语料（已被 .gitignore 忽略）
+#     data/my_doc.txt             ← 清洗后的入库文档
 
 on:
   schedule:
     - cron: '0 2 * * *'   # 每天 UTC 2:00（北京时间 10:00）
   workflow_dispatch:       # 支持手动触发
+    inputs:
+      max_pages:
+        description: '保留页数上限'
+        required: false
+        default: '500'
+      depth:
+        description: 'BFS 深度上限'
+        required: false
+        default: '3'
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write      # 允许提交回仓库
     steps:
       - uses: actions/checkout@v4
 
@@ -22,22 +42,24 @@ jobs:
       - name: 装依赖
         run: pip install -r requirements.txt
 
-      - name: 跑爬虫
-        run: python -m scripts.crawler
-
-      - name: 暂存爬取结果
-        run: git add data/crawled_data_full.txt
-
-      - name: 检查产出是否更新
+      - name: 跑爬虫（BFS）
+        # 用 shell 的 ${VAR:-默认值} 做兜底：定时触发时 inputs 为空也能拿到默认值
+        env:
+          MAX_PAGES: ${{ github.event.inputs.max_pages }}
+          DEPTH: ${{ github.event.inputs.depth }}
         run: |
-          if git diff --cached --quiet -- data/crawled_data_full.txt; then
-            echo "::error::data/crawled_data_full.txt 未更新，请检查 scripts/crawler.py 的写出路径（见 CARD-1.6.3）"
-            exit 1
-          fi
+          python -m scripts.crawler \
+            --max-pages "${MAX_PAGES:-500}" \
+            --depth "${DEPTH:-3}"
 
-      - name: 提交更新
+      - name: 清洗语料
+        run: python -m scripts.clean_corpus
+
+      - name: 汇总（只打印，不提交）
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet && git diff --staged --quiet || git commit -m "自动更新爬虫数据 $(date +'%Y-%m-%d')"
-          git push
+          echo "=== 原始语料 ==="
+          wc -c data/crawled_data_full.txt
+          grep -c '^=== ' data/crawled_data_full.txt || true
+          echo "=== 清洗后入库文档 ==="
+          wc -c data/my_doc.txt
+          grep -c '^=== ' data/my_doc.txt || true
