@@ -1,7 +1,16 @@
+/* =========================================================
+   style.css — 校园知识库问答 前端样式
+   改动对应卡片：CARD-3.1（多轮气泡）/ 3.3（清空按钮）
+                 CARD-3.4（"思考中"三点动画）
+   阅读顺序：全局 → 容器 → 头部 → 消息区 → 气泡 → 加载动画
+             → 错误+重试 → 输入区
+   ========================================================= */
+
+/* ---------- 全局：清掉浏览器默认边距，统一盒模型 ---------- */
 * {
     margin: 0;
     padding: 0;
-    box-sizing: border-box;
+    box-sizing: border-box;   /* 让 padding/border 算进宽度，布局更好算 */
 }
 
 body {
@@ -10,22 +19,36 @@ body {
     background: #f7f8fa;
     color: #1a1a1a;
     height: 100vh;
-    overflow: hidden;
+    overflow: hidden;   /* 页面本身不滚动，滚动交给内部的消息区 */
 }
 
+/* ---------- 容器：整页的居中"手机壳" ---------- */
 .container {
     max-width: 800px;
     height: 100vh;
     margin: 0 auto;
     display: flex;
-    flex-direction: column;
+    flex-direction: column;   /* 头部/消息区/输入区 上下排列 */
     background: #ffffff;
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.05);
 }
 
+/* =========================================================
+   头部（CARD-3.3）
+   原来是纯文字，现在改成 flex：左边标题，右边清空按钮
+   ========================================================= */
 .header {
+    display: flex;
+    align-items: center;              /* 垂直居中 */
+    justify-content: space-between;   /* 左右两端对齐 */
+    gap: 12px;
     padding: 20px 24px;
     border-bottom: 1px solid #ececec;
+}
+
+/* 左边文字块：让 h1 和副标题自然换行、不被按钮挤压 */
+.header-text {
+    min-width: 0;   /* 允许在窄屏下收缩，避免把清空按钮挤出屏幕 */
 }
 
 .header h1 {
@@ -39,53 +62,133 @@ body {
     color: #8a8a8a;
 }
 
-.messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+/* 清空对话按钮：浅色描边风格，和主操作（发送）区分开 */
+.clear-btn {
+    flex: 0 0 auto;          /* 不参与伸缩，固定自身宽度 */
+    padding: 8px 14px;
+    font-size: 13px;
+    color: #666;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 18px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 
+.clear-btn:hover {
+    background: #fdecec;      /* 悬停时淡淡泛红，暗示"清空"是有点破坏性的操作 */
+    color: #e5484d;
+    border-color: #f7c9ca;
+}
+
+/* =========================================================
+   消息区（CARD-3.1）
+   所有气泡的父容器，占满剩余高度，内容多了自己滚动
+   ========================================================= */
+.messages {
+    flex: 1;                  /* 吃掉头部和输入区之间的所有高度 */
+    overflow-y: auto;         /* 超出就出现滚动条 */
+    padding: 24px;
+    display: flex;
+    flex-direction: column;   /* 气泡从上往下堆 */
+    gap: 16px;                /* 气泡之间的间距 */
+}
+
+/* ---------- 气泡通用样式 ---------- */
 .message {
     display: flex;
     flex-direction: column;
-    max-width: 80%;
+    max-width: 80%;           /* 最多占 80% 宽，留白看得清左右 */
     padding: 12px 16px;
     border-radius: 12px;
     line-height: 1.6;
     font-size: 15px;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    white-space: pre-wrap;     /* 保留换行和后端返回的 \n */
+    word-wrap: break-word;     /* 长单词/长链接强制换行，不撑破气泡 */
 }
 
+/* 用户气泡：靠右、蓝底白字 */
 .message.user {
     align-self: flex-end;
     background: #007aff;
     color: white;
-    border-bottom-right-radius: 4px;
+    border-bottom-right-radius: 4px;   /* 右下角收一个小角，指向"我" */
 }
 
+/* 助手气泡：靠左、灰底黑字 */
 .message.assistant {
     align-self: flex-start;
     background: #f0f0f0;
     color: #1a1a1a;
-    border-bottom-left-radius: 4px;
+    border-bottom-left-radius: 4px;    /* 左下角收一个小角，指向"机器人" */
 }
 
-.message.loading::after {
-    content: "▋";
-    animation: blink 1s infinite;
+/* =========================================================
+   "思考中"三点动画（CARD-3.4）
+   收到第一个字符之前显示，收到后由 app.js 替换成正文
+   ========================================================= */
+.thinking {
+    display: inline-flex;     /* 让三个点和文字排成一行 */
+    align-items: center;
+    gap: 6px;
     color: #999;
-    margin-left: 2px;
+    font-size: 14px;
 }
 
-@keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
+.thinking .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #b0b0b0;
+    animation: dot-bounce 1.2s infinite ease-in-out;
 }
 
+/* 给第 2、3 个点加延迟，形成"依次跳动"的效果 */
+.thinking .dot:nth-child(2) { animation-delay: 0.2s; }
+.thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-bounce {
+    0%, 60%, 100% { transform: translateY(0);     opacity: 0.5; }
+    30%           { transform: translateY(-5px);  opacity: 1;   }
+}
+
+/* =========================================================
+   错误气泡 + 重试按钮（CARD-3.2）
+   出错时不再弹 alert、也不白屏，而是就地变成一条红色气泡
+   ========================================================= */
+.message.error {
+    align-self: flex-start;
+    background: #fdecec;
+    color: #b42318;
+    border: 1px solid #f7c9ca;
+}
+
+/* 错误气泡里的文字 */
+.error-text {
+    font-size: 14px;
+}
+
+/* 重试按钮：错误气泡下方的小按钮 */
+.retry-btn {
+    align-self: flex-start;      /* 在气泡内靠左 */
+    margin-top: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #b42318;
+    background: #ffffff;
+    border: 1px solid #f7c9ca;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.retry-btn:hover {
+    background: #fdecec;
+}
+
+/* =========================================================
+   输入区
+   ========================================================= */
 .input-area {
     display: flex;
     padding: 16px 24px;
@@ -105,9 +208,11 @@ body {
 }
 
 #question-input:focus {
-    border-color: #007aff;
+    border-color: #007aff;      /* 聚焦时高亮边框 */
 }
 
+/* 发送按钮（也用于 app.js 给 .send-btn 加类名） */
+.send-btn,
 #send-btn {
     padding: 12px 24px;
     background: #007aff;
@@ -120,10 +225,13 @@ body {
     transition: background 0.2s;
 }
 
+.send-btn:hover,
 #send-btn:hover {
     background: #0066d6;
 }
 
+/* 禁用态：请求进行中，防止重复点击 */
+.send-btn:disabled,
 #send-btn:disabled {
     background: #b0b0b0;
     cursor: not-allowed;
