@@ -161,7 +161,7 @@ async function sendQuestion(questionOverride, options = {}) {
     let finished = false;   // 是否收到了后端明确的 [DONE]
 
     try {
-        const resp = await fetch("/chat/stream", {
+        const resp = await fetch("chat/stream", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             // ⭐ 一起带上历史快照，后端据此拼多轮 messages
