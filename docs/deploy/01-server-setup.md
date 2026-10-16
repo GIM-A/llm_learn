@@ -23,18 +23,23 @@
 
 **必须改成相对路径**（去掉开头的 `/`）。补丁与原理见 **[03-nginx.md](./03-nginx.md) 第 0 节**，**建议在第 1 步之前就先改掉并提交**。
 
-### 2. `chroma_db_langchain/` 和 `.env` 被 gitignore，`git clone` 拿不到
+### 2. `chroma_db_langchain/`、`data/` 和 `.env` 被 gitignore，`git clone` 拿不到
 
-`.gitignore` 里明确忽略了这两项：
+`.gitignore` 里明确忽略了这几项：
 
 ```
 .env
 chroma_db_langchain/
+data/crawled_data.txt
+data/crawled_data_backup.txt
+data/crawled_data_full.txt
+data/my_doc.txt
 ```
 
 - **`.env`**：含 `DASHSCOPE_API_KEY`，**绝不能进仓库**，必须单独 `scp` 上传。
-- **`chroma_db_langchain/`**：向量库（本地 756 KB / 5 个文件）。**必须一起上传**，否则服务器上是空库 → 所有提问都返回「资料中未提到」。
-  - 兜底方案（不推荐，会消耗 embedding 额度）：上传后在服务器上执行 `python -m scripts.build_index` 重建。
+- **`chroma_db_langchain/`**：向量库（本地约 **977 条 / 22 MB**）。**必须一起上传**，否则服务器上是空库 → 所有提问都返回「资料中未提到」。
+- **`data/my_doc.txt`**：语料（约 **1.8 MB / 442 页**）。只有**重建向量库**时才用得到，但它是 `build_index` 的输入 —— 只传了向量库、没传语料的话，服务器上**无法重建**。
+  - 兜底/重建方案（不推荐日常用，会消耗 embedding 额度）：先确认 `data/my_doc.txt` 已传上来，再在服务器上执行 `python -m scripts.build_index`（**重建前必须先停服务**，见本文附录 B）。
 
 ---
 
@@ -170,14 +175,17 @@ ls -ld /opt/llm_learn
 
 ---
 
-## 第 5 步：上传代码
+## 第 5 步：上传代码与数据
 
 本项目远端仓库：`https://github.com/GIM-A/llm_learn.git`，分支 `refactor/fastapi`。
-但如前所述，**仓库里没有 `.env` 和 `chroma_db_langchain/`**，所以有两条路。
+但如前所述，**仓库里没有 `.env`、`chroma_db_langchain/` 和 `data/`**，所以有两条路。
+
+> **代码走 git，数据单独 `scp`**：仓库里只有代码；向量库（977 条）和语料
+> （`data/my_doc.txt` 1.8MB）都被 gitignore 了，无论走哪条路，都必须**另外传一次**。
 
 ### 路线 A（推荐）：全部从本地 `scp` 上去
 
-一次性把代码 + 向量库 + `.env` 都传齐，不用在服务器上配 git 凭据。
+一次性把代码 + 向量库 + 语料 + `.env` 都传齐，不用在服务器上配 git 凭据。
 
 **在本地 Windows PowerShell 里执行**（Windows 10+ 自带 `scp`）：
 
@@ -185,6 +193,8 @@ ls -ld /opt/llm_learn
 # 5A.1 先确保本地已应用前端相对路径补丁（见 03-nginx.md 第 0 节）并提交
 
 # 5A.2 用 tar 打包（排除虚拟环境和缓存，别把 Windows 的 .venv 传上去！）
+#      注意：tar 会把 data/ 一起打进来（my_doc.txt 1.8MB + crawled_data_full.txt 2.2MB），
+#            这正是我们要的 —— 被 gitignore 的语料靠它一次传齐。
 cd D:\llm_learn
 tar --exclude=.venv --exclude=__pycache__ --exclude=.git --exclude=.idea --exclude=.workbuddy --exclude=.agents -czf $env:TEMP\llm_learn_deploy.tar.gz .
 Get-Item $env:TEMP\llm_learn_deploy.tar.gz | Select-Object Length
@@ -203,21 +213,24 @@ sudo chown -R schoolqa:schoolqa /opt/llm_learn
 
 # 5A.5 确认关键文件都在
 ls -l /opt/llm_learn
-ls -l /opt/llm_learn/chroma_db_langchain/     # 必须有 chroma.sqlite3 / data_level0.bin 等 5 个文件
+ls -l /opt/llm_learn/chroma_db_langchain/     # 必须有 chroma.sqlite3 / data_level0.bin 等（当前 5 项）
 ls -l /opt/llm_learn/.env                     # 必须存在，下一步改权限
-ls -l /opt/llm_learn/data/my_doc.txt
+ls -l /opt/llm_learn/data/my_doc.txt          # 重建向量库的输入，约 1.8MB
 ```
 
-### 路线 B：服务器 `git clone` + 单独传两个文件
+### 路线 B：服务器 `git clone` + 单独传数据
 
 ```bash
 # 5B.1 拉代码（公开仓库直接 clone；私有仓库需配 token / deploy key）
 sudo -u schoolqa git clone -b refactor/fastapi https://github.com/GIM-A/llm_learn.git /opt/llm_learn
 
-# 5B.2 再补传被 gitignore 的两样
+# 5B.2 再补传被 gitignore 的三样（向量库 + 语料 + .env）
 #   在本地 PowerShell：
 #   scp -r D:\llm_learn\chroma_db_langchain root@8.149.236.20:/opt/llm_learn/
-#   scp    D:\llm_learn\.env                 root@8.149.236.20:/opt/llm_learn/
+#   scp -r D:\llm_learn\data                root@8.149.236.20:/opt/llm_learn/
+#   scp    D:\llm_learn\.env                root@8.149.236.20:/opt/llm_learn/
+#   说明：data/ 里至少要有 my_doc.txt（重建向量库的输入）；
+#         crawled_data*.txt 是爬虫原始/中间产物，日常部署可传可不传。
 sudo chown -R schoolqa:schoolqa /opt/llm_learn
 ```
 
@@ -316,7 +329,7 @@ curl -N -s -X POST http://127.0.0.1:8001/chat/stream \
 **验证完按 `Ctrl+C` 停掉**（第 9 步交给 systemd 常驻）。
 
 > **如果 `/chat/stream` 返回空或「资料中未提到」**：八成是向量库没传上来。
-> 检查 `ls /opt/llm_learn/chroma_db_langchain/`；空的话用附录 B 重建。
+> 检查 `ls /opt/llm_learn/chroma_db_langchain/`；空的话用附录 B 重建（**重建前必须先停服务**）。
 
 ---
 
@@ -363,10 +376,25 @@ sudo -u schoolqa env PIP_NO_CACHE_DIR=1 .venv/bin/pip install -r requirements.lo
 
 ## 附录 B：重建向量库（兜底，会消耗 embedding 额度）
 
+**两个前提**：
+
+1. **必须先停服务** —— `build_index` 会先删掉 `chroma_db_langchain/` 再重建；
+   服务还在跑时 Chroma 持有 SQLite 连接，删目录会失败或留下半坏的库。
+2. **`data/my_doc.txt` 必须在** —— 它是 `build_index` 的输入（约 1.8MB / 442 页）。
+   服务器上没有的话，先从本地 `scp`：
+   `scp D:\llm_learn\data\my_doc.txt root@8.149.236.20:/opt/llm_learn/data/`
+
 ```bash
+# 1) 停服务（已装 systemd 时；没装就直接 Ctrl+C 停掉前台进程）
+sudo systemctl stop school-qa
+
+# 2) 重建（会调 embedding 接口，977 条约需数分钟）
 cd /opt/llm_learn
 sudo -u schoolqa .venv/bin/python -m scripts.build_index
-# 期望：最后一行 "✅ 完成！向量库条数：N"（N > 0）
+# 期望：最后一行 "[OK] 向量库条数：977"（条数 > 0；不是 977 说明语料/切分不对）
+
+# 3) 重启服务
+sudo systemctl start school-qa
 ```
 
 该脚本会**先删掉** `chroma_db_langchain/` 再重建，所以只在向量库确实缺失/损坏时用。

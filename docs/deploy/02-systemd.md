@@ -183,6 +183,7 @@ sudo systemctl disable --now school-qa
 
 # 改了代码后重启生效
 cd /opt/llm_learn && sudo git pull     # 或重新 scp
+# data/ 已不在 git，语料更新需单独 scp（见 01-server-setup.md）
 sudo systemctl restart school-qa
 ```
 

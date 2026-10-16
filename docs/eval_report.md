@@ -4,7 +4,7 @@
 > 导致文件无法被 Python 解析（`SyntaxError: invalid character '，' (U+FF0C)` at line 102），见 CARD-1.6.1。
 >
 > ⚠️ 数据来源为**旧的离线评测链路**（`qwen-turbo` 生成 / 召回 top 20 / rerank top 10 / 私有 rerank 地址），
-> 与当前线上链路（`qwen3.7-flash` / 召回 top 5 / rerank top 3）**不同源**，结论仅供参考。
+> 与当前线上链路（`qwen3.7-flash` / 召回 top 20 / rerank top 3）**不同源**，结论仅供参考。
 
 ## 测试集
 

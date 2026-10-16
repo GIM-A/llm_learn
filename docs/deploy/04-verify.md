@@ -37,6 +37,9 @@ printf '  %-44s %s\n' "MemoryCurrent(MiB)" \
 echo "===== B. 直连后端（绕过 nginx）====="
 ck "后端 /health" "200" "$(code http://127.0.0.1:8001/health)"
 ck "后端 /" "200" "$(code http://127.0.0.1:8001/)"
+# 向量库条数（应 ≈977；为 0 说明向量库没传上来）
+sudo -u schoolqa /opt/llm_learn/.venv/bin/python -c \
+  "import sqlite3;print('  %-44s %s' % ('向量库条数(应≈977)', sqlite3.connect('/opt/llm_learn/chroma_db_langchain/chroma.sqlite3').execute('select count(*) from embeddings').fetchone()[0]))" 2>/dev/null
 
 echo "===== C. 经 nginx ====="
 ck "项目1 /" "200" "$(code $PROJ1)"
@@ -114,6 +117,27 @@ sudo ss -lntp | grep 8001
 ```
 
 - [ ] 显示 `127.0.0.1:8001`
+
+---
+
+## B2. 向量库条数 → 977（确认不是空库）
+
+**`/health` 只能证明"服务活着"，证明不了"知识库有料"** —— 空库时服务照样 200，
+但所有提问都会返回「资料中未提到」。所以这里直接在服务器上数一下 Chroma 的条数：
+
+```bash
+cd /opt/llm_learn
+sudo -u schoolqa .venv/bin/python - <<'PY'
+import sqlite3
+n = sqlite3.connect("chroma_db_langchain/chroma.sqlite3") \
+        .execute("select count(*) from embeddings").fetchone()[0]
+print("向量库条数 =", n)
+PY
+# 期望：向量库条数 = 977（≥ 900 即可）
+# 为 0 → 向量库没传上来；条数差很多 → 语料/切分不对。都按 01 篇附录 B 重建
+```
+
+- [ ] 向量库条数 ≈ **977**（不是 0）
 
 ---
 
@@ -357,7 +381,7 @@ curl -s -o /dev/null -w '重启后 项目1    = %{http_code}\n' http://127.0.0.1
 | 答案**一次性出现**（不是打字机） | SSE 被缓冲 | 确认 `proxy_buffering off;` + `gzip off;`；`nginx -T` 复核 |
 | `/school-qa/` 跳到项目1 | 请求落在别的 server 块 | `grep -rn 'listen 80\|server_name' /etc/nginx/sites-enabled/` |
 | 项目1 也坏了 | `include` 放错位置 | 回滚：`sudo tar -xzf /root/nginx-backup-<STAMP>.tar.gz -C /etc && nginx -t && systemctl reload nginx` |
-| 提问返回「资料中未提到」 | 向量库没传上去 | `ls /opt/llm_learn/chroma_db_langchain/`；缺就按 01 篇附录 B 重建 |
+| 提问返回「资料中未提到」 | 向量库没传上去 / 是空库 | 先按 B2 数条数（应 ≈977）；为 0 或缺失就按 01 篇附录 B 重建（**先停服务**） |
 | 服务反复重启 | 启动即崩 | `journalctl -u school-qa -n 80 --no-pager` 看第一段 traceback |
 | 改完 nginx 后**两个入口都 404** | `nginx -t` 过了但 include 位置不对 | `sudo nginx -T \| grep -n school-qa` 看它落在哪个 server 块 |
 
@@ -379,6 +403,7 @@ curl 8.149.236.20/school-qa/    →  外网通不通
 
 - [ ] A 服务 `active` + `enabled`，日志有 `[startup] 完成`
 - [ ] B `127.0.0.1:8001/health` 返回 ok，监听地址是 `127.0.0.1`
+- [ ] B2 向量库条数 ≈ 977（不是空库）
 - [ ] C `http://127.0.0.1/school-qa/` = 200，静态资源 = 200，无斜杠 301
 - [ ] D 项目1 `/` = 200 且未被劫持
 - [ ] E SSE：`chunked` + `x-accel-buffering: no` + 时间戳递增分散 + 结尾 `[DONE]`；带 history 生效

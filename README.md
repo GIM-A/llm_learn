@@ -11,8 +11,8 @@
 
 | 功能 | 说明 |
 |---|---|
-| 📄 **知识库问答** | 基于 `data/my_doc.txt` 的内容回答校园问题 |
-| 🔍 **向量检索 + Rerank** | 向量召回 top 5 → `qwen3-rerank` 精排 top 3 |
+| 📄 **知识库问答** | 基于 `data/my_doc.txt`（全自动生成，977 条向量）回答校园问题 |
+| 🔍 **向量检索 + Rerank** | 向量召回 top 20 → `qwen3-rerank` 精排 top 3 |
 | 🤖 **LLM 生成** | 通义千问 `qwen3.7-flash`（走 OpenAI 兼容端点） |
 | ⌨️ **流式输出** | SSE 逐字返回，前端实时显示"打字机"效果 |
 | 💬 **多轮对话** | 后端接收 `history`，最多保留最近 5 轮 |
@@ -31,7 +31,7 @@ FastAPI 后端（backend/main.py）
       │
       ▼
 向量检索（backend/rag.py: search_docs）
-      │  Chroma + text-embedding-v3，召回 top 5
+      │  Chroma + text-embedding-v3，召回 top 20
       ▼
 Rerank 精排（qwen3-rerank，返回 top 3）
       │
@@ -76,21 +76,23 @@ llm_learn/
 │   ├── style.css
 │   └── app.js                # 多轮对话 / 错误重试 / 清空 / 打字机
 ├── scripts/                  # 工具脚本（都不是服务运行必需的）
-│   ├── build_index.py        # 重建向量库
-│   ├── crawler.py            # 爬取原始语料（CI 定时任务用）
+│   ├── build_index.py        # 重建向量库（读 my_doc.txt → 切分 → 嵌入）
+│   ├── crawler.py            # 爬取原始语料 → data/crawled_data_full.txt（CI 定时任务用）
+│   ├── clean_corpus.py       # 清洗语料 → data/my_doc.txt（去模板/去重，覆盖写）
 │   ├── evaluate.py           # 20 题评测（支持 --dry-run）
 │   ├── test_api.py           # 接口冒烟测试
 │   ├── test_rag.py           # 检索链路诊断
 │   ├── test_llm.py           # LLM 调用诊断
 │   └── debug_prompt.py       # 打印拼好的 prompt
-├── data/                     # 语料
-│   └── my_doc.txt            # ⭐ 唯一进向量库的文档（8KB / 32 行）
-├── chroma_db_langchain/      # 向量库持久化目录（被 .gitignore 忽略，需另行传）
+├── data/                     # 语料（**整体不进 git**，部署时需单独 scp）
+│   ├── crawled_data_full.txt # 爬虫原始输出（约 2.2MB / 500 页）
+│   └── my_doc.txt            # ⭐ 唯一进向量库的文档（约 1.8MB / 442 页，由 clean_corpus.py 生成）
+├── chroma_db_langchain/      # 向量库持久化目录（被 .gitignore 忽略，需另行传；当前 977 条）
 ├── docs/
 │   ├── eval_report.md        # 评测报告
 │   └── deploy/               # 部署文档（01 环境 → 02 systemd → 03 nginx → 04 验证）
 ├── _deprecated/              # 已废弃的旧 Streamlit 版本（仅作存档）
-├── .github/workflows/        # GitHub Actions（每日爬虫更新）
+├── .github/workflows/        # GitHub Actions（定时爬取语料，只跑 crawler + clean，不提交）
 ├── requirements.txt
 └── README.md
 ```
@@ -113,9 +115,9 @@ pip install -r requirements.txt
 # 3. 配置 API Key（见下方"环境变量"）
 #    在项目根目录建 .env，写入 DASHSCOPE_API_KEY=sk-xxxx
 
-# 4. 准备向量库
+# 4. 准备向量库（完整数据链路见「🔁 数据链路与重建知识库」一节）
 #    - 如果 chroma_db_langchain/ 已经有内容，跳过这步
-#    - 否则重建（会调用 embedding 接口，约 10~30 秒）
+#    - 否则先确保 data/my_doc.txt 存在，再重建（会调 embedding 接口，977 条时会慢一些）
 python -m scripts.build_index
 
 # 5. 启动服务
@@ -149,6 +151,47 @@ curl http://127.0.0.1:8001/health
 > ⚠️ **子路径部署有个前置条件**：前端所有资源路径必须是**相对路径**
 > （`static/app.js` 而不是 `/static/app.js`）。本项目已经改成相对路径，
 > 因此既能挂子路径，也能直接跑在根路径。
+
+---
+
+## 🔁 数据链路与重建知识库
+
+知识库是**全自动生成**的，四个环节串成一条链路（`data/` 里的文件**都不进 git**）：
+
+```
+官网（www.cqytxy.edu.cn）
+      │  python -m scripts.crawler          # BFS 爬取 + URL/内容去重 + 过滤短页
+      ▼
+data/crawled_data_full.txt                    # 爬虫原始输出（约 2.2MB / 500 页）
+      │  python -m scripts.clean_corpus      # 去导航/版权模板 + 页内重复压缩 + 去重
+      ▼
+data/my_doc.txt                               # ⭐ 唯一进向量库（约 1.8MB / 442 页，带 `=== url ===` 标记）
+      │  python -m scripts.build_index       # 切分（chunk 1000 / overlap 150）→ embedding → Chroma
+      ▼
+chroma_db_langchain/                          # 向量库（当前 977 条，collection = langchain）
+```
+
+**重建知识库（完整流程）**：
+
+```bash
+# 0) 若服务正在运行，先停掉（重建会删掉旧库，避免边删边读）
+#    本地没起服务可跳过；服务器上必须停 —— 见 docs/deploy/01-server-setup.md 附录 B
+
+# 1) 爬取官网全量静态页 → data/crawled_data_full.txt（覆盖写）
+python -m scripts.crawler          # 可选：--max-pages / --depth / --min-chars / --delay
+
+# 2) 清洗 → data/my_doc.txt（覆盖写）
+python -m scripts.clean_corpus     # 可选：--min-chars / --freq-threshold / --repeat-times
+
+# 3) 重建向量库（先删旧库 → 切分 → 调 embedding 接口 → 写 Chroma）
+python -m scripts.build_index      # 可选：--chunk-size / --chunk-overlap
+```
+
+> ⚠️ **重建向量库前必须先停服务**：`build_index` 会先 `rmtree` 掉 `chroma_db_langchain/`。
+> 服务还在跑时 Chroma 持有 SQLite 连接，删目录会失败或留下半坏的库。
+
+> 💡 **只更新向量库、语料不变**：跳过第 1、2 步，直接跑第 3 步即可。
+> `data/` 不进 git，服务器上若缺 `my_doc.txt`，用 `scp` 单独补传（见部署文档 01 篇）。
 
 ---
 
@@ -217,10 +260,10 @@ data: [DONE]
 
 ### 1. RAG 流程
 
-1. **切分**：`RecursiveCharacterTextSplitter`，`chunk_size=500` / `chunk_overlap=50`
-   （知识库每条信息都短，块切小一点更准）
+1. **切分**：`RecursiveCharacterTextSplitter`，`chunk_size=1000` / `chunk_overlap=150`
+   （语料扩到几百页后，1000 字更接近"一段完整信息"；由 `scripts/build_index.py` 执行）
 2. **嵌入**：`text-embedding-v3`（云端接口，**本地不跑模型，不占内存**）
-3. **召回**：Chroma 向量检索 top **5**（`config.VECTOR_TOP_K`）
+3. **召回**：Chroma 向量检索 top **20**（`config.VECTOR_TOP_K`）
 4. **精排**：`qwen3-rerank` 精排后保留 top **3**（`config.RERANK_TOP_N`）
 5. **生成**：把 top 3 拼成 context，连同一句话约束的 system 提示词交给 `qwen3.7-flash`
 
@@ -261,9 +304,10 @@ Rerank 用交叉编码器逐条打分，把真正相关的挑到最前面，相�
    曾经用过的私有地址会返回 `403 Endpoint.AccessDenied`；
    统一用 `config.RERANK_URL`（官方地址）。
 
-4. **`data/` 里的三个文件不是重复文件，不要删**
-   `crawled_data_full.txt`（爬虫原始输出）→ `crawled_data.txt`（清洗后）→
-   `my_doc.txt`（**唯一进向量库的**）是三层关系，内容互不相同。
+4. **`data/` 整体不进 git，部署时别漏传**
+   `crawled_data_full.txt`（爬虫原始输出，约 2.2MB）→ `my_doc.txt`（清洗后，**唯一进向量库的**，
+   约 1.8MB）是流水线关系，内容互不相同，且都在 `.gitignore` 里。
+   因此 `git clone` 拿不到它们 —— 部署时必须**单独 `scp`**（见部署文档 01 篇）。
 
 5. **项目根目录由 `config.py` 推导，不要写死绝对路径**
    `ROOT_DIR = Path(__file__).resolve().parent.parent`，所有路径常量从它派生。
@@ -292,7 +336,13 @@ Rerank 用交叉编码器逐条打分，把真正相关的挑到最前面，相�
 ## 🧰 常用脚本
 
 ```bash
-# 重建向量库（会先删掉旧的，再调 embedding 接口）
+# 爬取官网语料 → data/crawled_data_full.txt
+python -m scripts.crawler
+
+# 清洗语料 → data/my_doc.txt
+python -m scripts.clean_corpus
+
+# 重建向量库（会先删掉旧的，再调 embedding 接口）★ 重建前先停服务
 python -m scripts.build_index
 
 # 接口冒烟测试（端口取 config.DEFAULT_PORT，默认 8001）
@@ -322,8 +372,8 @@ python -m scripts.evaluate
 
 - 检索只用**当前问题**做查询，不参与历史。所以像"它呢？"这种**纯代词提问**，
   即使多轮历史生效了，检索到的资料也可能不准（答案里代词能被正确解析，但依据可能不足）。
-- 评测脚本（`scripts/evaluate.py`）与线上链路仍未完全对齐（prompt 没有 system 消息、rerank `top_n=10`、
-  召回 `k=20`），因此评测准确率不能直接等同于线上表现。
+- 评测脚本（`scripts/evaluate.py`）与线上链路仍未完全对齐（它的 prompt 没有 system 消息、
+  rerank `top_n=10` 而线上是 3），因此评测准确率不能直接等同于线上表现。
 - 会话历史保存在**浏览器内存**里，刷新页面即丢失；服务端**不持久化**会话。
 
 ---
