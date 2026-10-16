@@ -15,6 +15,14 @@ __pycache__/
 # 向量库（云端自动生成）
 chroma_db_langchain/
 
+# 爬虫原始语料（体积大、可由 scripts/crawler.py 重新爬取）
+# 注意：这里**不用通配符**，逐个列，避免误伤 crawled_data_full.txt：
+#   - data/my_doc.txt             → 唯一进向量库的文档，必须继续入库
+#   - data/crawled_data_full.txt  → crawl workflow 的产出，工作流里有 git add，必须留在 git
+#   - 下面这两个是中间产物 / 备份，忽略
+data/crawled_data.txt
+data/crawled_data_backup.txt
+
 # PyCharm
 .idea/
 

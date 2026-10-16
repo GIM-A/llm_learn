@@ -45,3 +45,10 @@ RERANK_URL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/
 
 # ========== 8. 向量库 collection 名 ==========
 COLLECTION_NAME = "langchain"
+
+# ========== 9. 服务默认端口 ==========
+# 用途：scripts/test_api.py 这类"要打本地服务"的脚本从这里取端口，避免把 8001 写死在脚本里。
+# 注意：真正决定服务监听端口的是启动命令（比如 uvicorn --port 8001，
+#       部署时写在 systemd 的 ExecStart 里）。两边要保持一致；
+#       想换端口就同时改启动命令和这里的 DEFAULT_PORT（或直接设同名环境变量）。
+DEFAULT_PORT = int(os.environ.get("DEFAULT_PORT", "8001"))

@@ -1,107 +1,334 @@
-# 学校信息问答助手（RAG）
+# 校园知识库问答（RAG）
 
-基于 RAG（检索增强生成）的学校信息问答系统。用户提问学校相关的问题，系统从文档中检索相关内容，经 rerank 精排后，由大模型生成回答。
+基于 **RAG（检索增强生成）** 的校园信息问答系统。用户提问，系统先从知识库检索相关片段、
+经 rerank 精排后交给大模型，流式（打字机）返回一句话答案。
 
-**🔗 在线演示**：https://school-question.streamlit.app
+前端是原生 HTML/CSS/JS，后端是 FastAPI；**不依赖任何前端框架**（没有 React/Vue，也没有 Streamlit）。
 
-<img width="635" height="728" alt="image" src="https://github.com/user-attachments/assets/85eb7430-f646-4f0e-af13-7790c86423c7" />
-
-
+---
 
 ## ✨ 功能
 
-- 📄 **文档问答**：基于 `my_doc.txt` 中的内容回答
-- 🔍 **向量检索 + Rerank**：先用向量检索召回 top 20，再用 `qwen3-rerank` 精排 top 3
-- 🤖 **LLM 生成**：调用通义千问 `qwen-turbo` 生成回答
-- 🛡️ **防幻觉**：资料中没有的内容，模型回答"资料中未提到"
-- 💬 **多轮对话**：支持聊天式交互
+| 功能 | 说明 |
+|---|---|
+| 📄 **知识库问答** | 基于 `data/my_doc.txt` 的内容回答校园问题 |
+| 🔍 **向量检索 + Rerank** | 向量召回 top 5 → `qwen3-rerank` 精排 top 3 |
+| 🤖 **LLM 生成** | 通义千问 `qwen3.7-flash`（走 OpenAI 兼容端点） |
+| ⌨️ **流式输出** | SSE 逐字返回，前端实时显示"打字机"效果 |
+| 💬 **多轮对话** | 后端接收 `history`，最多保留最近 5 轮 |
+| 🛡️ **防幻觉** | 提示词约束"根据资料一句话回答"；未检索到资料时明确回答"资料中未提到" |
+| 🧯 **前端容错** | 断网/断流时就地显示错误气泡 + 「重试」按钮，不弹 alert、不白屏 |
+
+---
 
 ## 🏗️ 架构
-用户提问
-↓
-Streamlit 前端（chat_input）
-↓
-向量检索（Chroma + text-embedding-v3，召回 top 20）
-↓
+
+```
+用户提问（浏览器）
+      │  POST /chat/stream  { question, history? }
+      ▼
+FastAPI 后端（backend/main.py）
+      │
+      ▼
+向量检索（backend/rag.py: search_docs）
+      │  Chroma + text-embedding-v3，召回 top 5
+      ▼
 Rerank 精排（qwen3-rerank，返回 top 3）
-↓
-拼 context + prompt
-↓
-LLM 生成（qwen-turbo）
-↓
-返回回答
+      │
+      ▼
+拼装 messages：[system] + [最近 5 轮历史] + [当前问题 + 资料]
+      │
+      ▼
+LLM 生成（qwen3.7-flash，ChatOpenAI / OpenAI 兼容端点）
+      │  SSE 逐字下发： data: xxx\n\n ... data: [DONE]
+      ▼
+前端逐片渲染（frontend/app.js）
+```
+
+---
 
 ## 🛠️ 技术栈
 
 | 类别 | 技术 |
 |---|---|
-| 大模型 | 通义千问（qwen-turbo、text-embedding-v3、qwen3-rerank） |
-| RAG 框架 | LangChain |
-| 向量数据库 | Chroma |
-| 前端 | Streamlit |
-| 部署 | Streamlit Cloud |
+| 后端框架 | FastAPI + Uvicorn |
+| 前端 | 原生 HTML / CSS / JavaScript（无框架、无构建步骤） |
+| RAG 框架 | LangChain（`langchain-community` / `langchain-chroma` / `langchain-openai`） |
+| 向量数据库 | Chroma（本地持久化到 `chroma_db_langchain/`） |
+| 大模型服务 | 阿里云百炼 DashScope：`text-embedding-v3` / `qwen3-rerank` / `qwen3.7-flash` |
+| 配置管理 | `python-dotenv` + `backend/config.py`（**唯一配置源**） |
 | 语言 | Python 3.11 |
+| 部署 | Nginx 反代 + systemd（子路径 `/school-qa/`） |
 
-## 🚀 快速开始
+---
 
-### 1. 克隆仓库
+## 📁 项目结构
+
+```
+llm_learn/
+├── backend/                  # FastAPI 后端
+│   ├── config.py             # ⭐ 唯一配置源：路径/模型名/参数/API Key
+│   ├── main.py               # FastAPI 入口 + 路由 + 静态文件挂载
+│   ├── rag.py                # RAG 核心：检索 → rerank → 生成（含多轮截断）
+│   └── schemas.py            # Pydantic 请求/响应模型
+├── frontend/                 # 原生前端（静态文件，由 /static 挂载）
+│   ├── index.html
+│   ├── style.css
+│   └── app.js                # 多轮对话 / 错误重试 / 清空 / 打字机
+├── scripts/                  # 工具脚本（都不是服务运行必需的）
+│   ├── build_index.py        # 重建向量库
+│   ├── crawler.py            # 爬取原始语料（CI 定时任务用）
+│   ├── evaluate.py           # 20 题评测（支持 --dry-run）
+│   ├── test_api.py           # 接口冒烟测试
+│   ├── test_rag.py           # 检索链路诊断
+│   ├── test_llm.py           # LLM 调用诊断
+│   └── debug_prompt.py       # 打印拼好的 prompt
+├── data/                     # 语料
+│   └── my_doc.txt            # ⭐ 唯一进向量库的文档（8KB / 32 行）
+├── chroma_db_langchain/      # 向量库持久化目录（被 .gitignore 忽略，需另行传）
+├── docs/
+│   ├── eval_report.md        # 评测报告
+│   └── deploy/               # 部署文档（01 环境 → 02 systemd → 03 nginx → 04 验证）
+├── _deprecated/              # 已废弃的旧 Streamlit 版本（仅作存档）
+├── .github/workflows/        # GitHub Actions（每日爬虫更新）
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 🚀 运行方式
+
+### 本地开发
 
 ```bash
-git clone https://github.com/GIM-A/llm_learn.git
-cd llm_learn
+# 1. 建虚拟环境（Python 3.11）
+python -m venv .venv
+# Windows:  .venv\Scripts\activate
+# Linux/macOS:  source .venv/bin/activate
 
-2. 安装依赖
-bash
+# 2. 装依赖
 pip install -r requirements.txt
-3. 配置 API Key
-在项目根目录创建 .env 文件：
 
-text
+# 3. 配置 API Key（见下方"环境变量"）
+#    在项目根目录建 .env，写入 DASHSCOPE_API_KEY=sk-xxxx
+
+# 4. 准备向量库
+#    - 如果 chroma_db_langchain/ 已经有内容，跳过这步
+#    - 否则重建（会调用 embedding 接口，约 10~30 秒）
+python -m scripts.build_index
+
+# 5. 启动服务
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
+```
+
+浏览器打开 **http://127.0.0.1:8001/** 即可提问。
+
+> **端口说明**：Uvicorn 自己的默认端口是 `8000`，但本项目约定用 **`8001`**
+> （`backend/config.py` 的 `DEFAULT_PORT`，也用于 `scripts/test_api.py`）。
+> 想换端口：`--port 9000` 并同时设环境变量 `DEFAULT_PORT=9000`。
+
+**验证服务起来了**：
+
+```bash
+curl http://127.0.0.1:8001/health
+# {"status":"ok","message":"RAG API is running"}
+```
+
+### 部署到服务器
+
+完整步骤见 [`docs/deploy/`](./docs/deploy/)：
+
+| 文档 | 内容 |
+|---|---|
+| [01-server-setup.md](./docs/deploy/01-server-setup.md) | 服务器环境（Python、swap、系统用户、目录、依赖） |
+| [02-systemd.md](./docs/deploy/02-systemd.md) | systemd 常驻服务（开机自启、内存限制） |
+| [03-nginx.md](./docs/deploy/03-nginx.md) | Nginx 子路径反代 `/school-qa/`（含 SSE 配置） |
+| [04-verify.md](./docs/deploy/04-verify.md) | 验证清单（含 SSE 流式判定方法） |
+
+> ⚠️ **子路径部署有个前置条件**：前端所有资源路径必须是**相对路径**
+> （`static/app.js` 而不是 `/static/app.js`）。本项目已经改成相对路径，
+> 因此既能挂子路径，也能直接跑在根路径。
+
+---
+
+## 🔑 环境变量
+
+在项目根目录创建 `.env`（**已在 `.gitignore` 中，不会进仓库**）：
+
+```dotenv
+# 必填：阿里云百炼（DashScope）API Key
 DASHSCOPE_API_KEY=sk-你的key
-API Key 从 阿里云百炼 获取。
 
-4. 启动应用
-bash
-streamlit run app_full.py
-浏览器访问 http://localhost:8501。
-📁 项目结构
-text
-llm_learn/
-├── app_full.py          # 主程序（Streamlit + RAG）
-├── my_doc.txt           # 知识库文档
-├── requirements.txt     # 依赖清单
-├── .gitignore           # Git 忽略配置
-└── README.md            # 本文档
-🔑 关键实现
-1. RAG 流程
-文档切分：按 400 字切 chunk，重叠 50 字（防止切断语义）
+# 可选：默认端口，默认 8001（scripts/test_api.py 用它拼请求地址）
+# DEFAULT_PORT=8001
+```
 
-向量嵌入：用 text-embedding-v3 把 chunk 转成 1024 维向量
+- Key 从 [阿里云百炼控制台](https://bailian.console.aliyun.com/) 获取。
+- `backend/config.py` 是**唯一配置来源**，它按 `ROOT_DIR` 自动定位 `.env`，**因此无论从哪个目录启动都能读到**。
+- Key 的校验是**惰性**的：`import backend.config` 不会因为缺 Key 而报错
+  （这样只需要路径常量的脚本/crawler 在 CI 里也能跑）；真正要用 Key 时才由
+  `config.require_api_key()` 抛出明确的 `ValueError`。
 
-向量检索：用 Chroma 召回 top 20（多召回，避免遗漏）
+---
 
-Rerank：用 qwen3-rerank 对 20 条精排出 top 3（提升相关性）
+## 🌐 接口
 
-生成：把 top 3 chunk 拼成 context，让 qwen-turbo 基于 context 回答
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/` | 返回前端页面 `frontend/index.html` |
+| GET | `/health` | 健康检查 |
+| POST | `/chat` | 非流式问答（保留用于测试） |
+| POST | `/chat/stream` | **流式问答（SSE）**，前端实际使用 |
+| GET | `/static/*` | 前端静态资源 |
 
-2. 为什么用 Rerank
-纯向量检索算的是"整体语义相似度"，会返回"整体相关但细节不相关"的 chunk。
+**请求体**（`/chat` 与 `/chat/stream` 相同）：
 
-实测：问"学校的就业情况"，向量检索 top 5 里只有 1 条真的相关。
+```json
+{
+  "question": "学校在哪个城市？",
+  "history": [
+    { "role": "user", "content": "重庆移通学院在哪个城市？" },
+    { "role": "assistant", "content": "重庆移通学院位于重庆市。" }
+  ]
+}
+```
 
-加 rerank 后：相关 chunk 分数 0.836，不相关降到 0.4 以下。
+- `history` **可选**：不传时行为与单轮问答完全一致（向后兼容）。
+- `history` 里**只放"当前问题之前"的对话**；当前问题由 `question` 单独承载。
+- 只接受 `role` 为 `user` / `assistant` 的消息（`system` 会被过滤，防提示词注入）。
+- 服务端只保留**最近 5 轮**（`rag.MAX_HISTORY_TURNS`），按"一问一答"成对截断，不会拆散一对。
 
-3. 防幻觉
-prompt 里写："如果资料里没有答案，就说'资料中未提到'。"
+**流式响应格式**：
 
-效果：问"它怎么样"（无上下文），模型回答"资料中未提到"，不编造。
-📝 踩坑记录
-HF 镜像配置：国内下载 HuggingFace 模型需要 HF_ENDPOINT=https://hf-mirror.com
+```
+data: 学校
+data: 地处
+data: 重庆市
+data: 。
+data: [DONE]
+```
 
-禁用 Xet 协议：新版 HuggingFace 用 Xet 协议，镜像站不支持，需 HF_HUB_DISABLE_XET=1
+出错时下发 `data: [ERROR] 具体错误`。
 
-API Key 管理：用 .env + python-dotenv，避免硬编码；load_dotenv() 默认不覆盖环境变量，需 override=True
+---
 
-Streamlit Secrets：部署到 Cloud 时，用 st.secrets 读 key，而非 .env
+## 🔬 关键实现
 
-模型下线：gte-rerank 已下线，改用 qwen3-rerank
+### 1. RAG 流程
+
+1. **切分**：`RecursiveCharacterTextSplitter`，`chunk_size=500` / `chunk_overlap=50`
+   （知识库每条信息都短，块切小一点更准）
+2. **嵌入**：`text-embedding-v3`（云端接口，**本地不跑模型，不占内存**）
+3. **召回**：Chroma 向量检索 top **5**（`config.VECTOR_TOP_K`）
+4. **精排**：`qwen3-rerank` 精排后保留 top **3**（`config.RERANK_TOP_N`）
+5. **生成**：把 top 3 拼成 context，连同一句话约束的 system 提示词交给 `qwen3.7-flash`
+
+### 2. 为什么要有 Rerank
+
+纯向量检索算的是"整体语义相似度"，会返回**整体相关但细节不相关**的片段。
+Rerank 用交叉编码器逐条打分，把真正相关的挑到最前面，相关性区分度明显更高。
+
+### 3. 多轮对话怎么截断
+
+`rag._truncate_history()`：先把历史清洗成只剩 `user`/`assistant`，
+再按"以 user 开头"分组（一组 = 一轮），取**末尾 5 组**再摊平。
+只有 `user` 没有 `assistant` 的"不完整尾"也算一组，不会被丢掉。
+
+### 4. 前端容错
+
+- **断流检测**：流读完却没收到 `[DONE]` → 判为「连接中断」，就地变红色气泡 + 重试按钮。
+- **重试不重复**：重试时先把上一条失败的 `user` 从历史里弹出再重新压入，
+  保证历史里不会出现两条一模一样的提问。
+- **会话作废**：点「清空对话」会让 `sessionId` 自增，还在飞行中的旧请求会因编号不匹配而停止写入页面。
+
+---
+
+## 📝 踩坑记录
+
+> 按"下次一定还会遇到"的顺序排列。
+
+1. **DashScope 原生 SDK 调不了 `qwen3.7-flash`**
+   用 `dashscope.Generation.call` 会报 `400 InvalidParameter: url error`；
+   必须走 **OpenAI 兼容端点** `https://dashscope.aliyuncs.com/compatible-mode/v1`
+   （即 `ChatOpenAI` + `base_url`）。项目里统一由 `rag.init_llm()` 构造。
+
+2. **`qwen-turbo` 会持续 429**
+   该模型在本账号下持续 `Throttling.RateQuota`（隔 8 秒重试仍然 429，不是偶发）。
+   所以项目统一用 `qwen3.7-flash`，不要再退回 `qwen-turbo`。
+
+3. **私有 rerank 端点可能被拒**
+   曾经用过的私有地址会返回 `403 Endpoint.AccessDenied`；
+   统一用 `config.RERANK_URL`（官方地址）。
+
+4. **`data/` 里的三个文件不是重复文件，不要删**
+   `crawled_data_full.txt`（爬虫原始输出）→ `crawled_data.txt`（清洗后）→
+   `my_doc.txt`（**唯一进向量库的**）是三层关系，内容互不相同。
+
+5. **项目根目录由 `config.py` 推导，不要写死绝对路径**
+   `ROOT_DIR = Path(__file__).resolve().parent.parent`，所有路径常量从它派生。
+   这样从任何工作目录启动、换机器部署都不会跑偏。
+
+6. **子路径部署必须用相对路径**
+   前端只要有一处 `/static/...` 这种**以 `/` 开头**的写法，
+   挂到 `/school-qa/` 下就会去请求站点根 → 打到别的应用上 → 白屏。
+   现在 `index.html` / `app.js` 全部改成相对路径，两种部署方式都正确。
+
+7. **`.gitignore` 会阻止 `git add`**
+   被忽略的文件用 `git add` 会直接失败（需要 `-f`）。
+   改 `.gitignore` 时要注意有没有 CI 流程依赖那个文件。
+
+8. **Windows 上 Git Bash 垫片不可用 + PowerShell 管道会毁掉中文编码**
+   本机环境里 `bash` 垫片报 `dirname: command not found`，只能用 PowerShell；
+   而 Python 输出经 PowerShell 管道会变成乱码（`PYTHONIOENCODING=utf-8` 也救不回来），
+   需要干净中文输出时，**让 Python 自己以 UTF-8 写文件**。
+
+9. **不再需要 HuggingFace 镜像**
+   旧版本在本地跑 embedding 模型，需要 `HF_ENDPOINT` / `HF_HUB_DISABLE_XET`；
+   现在 embedding 走 DashScope 云端接口，这些配置**已经不需要了**。
+
+---
+
+## 🧰 常用脚本
+
+```bash
+# 重建向量库（会先删掉旧的，再调 embedding 接口）
+python -m scripts.build_index
+
+# 接口冒烟测试（端口取 config.DEFAULT_PORT，默认 8001）
+python -m scripts.test_api
+
+# 检索链路诊断（向量检索 / 含 rerank / 完整 RAG）
+python -m scripts.test_rag
+
+# LLM 调用诊断（非流式 / messages / 流式）
+python -m scripts.test_llm
+
+# 打印最终拼好的 prompt
+python -m scripts.debug_prompt
+
+# 评测：只跑 1 题验证链路
+python -m scripts.evaluate --dry-run
+# 评测：跑完整 20 题
+python -m scripts.evaluate
+```
+
+> `evaluate.py --dry-run` 在下游 LLM 不可用时**会 exit 1** —— 这是**故意的"看门狗"行为**，
+> 用来暴露链路故障，**不要**把它改成静默成功。
+
+---
+
+## 📌 已知限制
+
+- 检索只用**当前问题**做查询，不参与历史。所以像"它呢？"这种**纯代词提问**，
+  即使多轮历史生效了，检索到的资料也可能不准（答案里代词能被正确解析，但依据可能不足）。
+- 评测脚本（`scripts/evaluate.py`）与线上链路仍未完全对齐（prompt 没有 system 消息、rerank `top_n=10`、
+  召回 `k=20`），因此评测准确率不能直接等同于线上表现。
+- 会话历史保存在**浏览器内存**里，刷新页面即丢失；服务端**不持久化**会话。
+
+---
+
+## 📚 相关文档
+
+- 评测报告：[`docs/eval_report.md`](./docs/eval_report.md)
+- 部署文档：[`docs/deploy/`](./docs/deploy/)
