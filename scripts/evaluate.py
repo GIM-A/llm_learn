@@ -1,10 +1,18 @@
 
 import os
+import sys
+import argparse
 import requests
 import dashscope
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_chroma import Chroma
+
+# 让脚本既能 `python -m scripts.evaluate` 运行，也能 `python scripts/evaluate.py` 运行
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from backend import config
 
 load_dotenv(dotenv_path=r"D:\llm_learn\.env")
 dashscope.api_key = os.environ["DASHSCOPE_API_KEY"]
@@ -46,6 +54,19 @@ test_cases = [
     {"question": "学校的学生在哪些竞赛中获奖？", "expected_keywords": ["篮球", "武术"]},
 ]
 
+# ========== 命令行参数 ==========
+parser = argparse.ArgumentParser(description="RAG 检索链路评测")
+parser.add_argument(
+    "--dry-run",
+    action="store_true",
+    help="只跑第 1 题，验证链路是否打通（不跑完整 20 题评测）；若下游 LLM 不可用会 exit 1，属预期行为",
+)
+args = parser.parse_args()
+
+if args.dry_run:
+    test_cases = test_cases[:1]
+    print(f"[dry-run] 只跑 {len(test_cases)} 题，用于验证链路\n")
+
 correct = 0
 for i, case in enumerate(test_cases):
     question = case["question"]
@@ -59,7 +80,7 @@ for i, case in enumerate(test_cases):
     context = "\n\n".join([c.page_content for c in candidates])
 
     # Rerank 精排 top 3
-    url = "https://ws-u2shhcjc8lz52mor.cn-beijing.maas.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+    url = config.RERANK_URL
     headers = {
         "Authorization": f"Bearer {os.environ['DASHSCOPE_API_KEY']}",
         "Content-Type": "application/json"
@@ -73,6 +94,8 @@ for i, case in enumerate(test_cases):
         "parameters": {"top_n": 10, "return_documents": True}
     }
     resp = requests.post(url, headers=headers, json=data)
+    if args.dry_run:
+        print(f"[dry-run] Rerank HTTP 状态码 = {resp.status_code}")
     reranked = resp.json()["output"]["results"]
     context = "\n\n".join([item["document"]["text"] for item in reranked])
     # 调 LLM
