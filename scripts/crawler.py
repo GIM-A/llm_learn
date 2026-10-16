@@ -4,6 +4,13 @@ import trafilatura
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import time
+import sys
+from pathlib import Path
+
+# 让脚本既能 `python -m scripts.crawler` 运行，也能 `python scripts/crawler.py` 运行
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from backend import config
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -52,9 +59,10 @@ for i, link in enumerate(links):
     print(f"  成功，{len(text)} 字符")
     time.sleep(1)
 
-# 3. 保存到文件
-with open("crawled_data_full.txt", "w", encoding="utf-8") as f:
+# 3. 保存到文件（路径由 config 从项目根推导，不再依赖当前工作目录）
+output_path = config.DATA_DIR / "crawled_data_full.txt"
+with open(output_path, "w", encoding="utf-8") as f:
     f.write("\n\n".join(all_content))
 
-print(f"\n✅ 完成！成功抓取 {success} 个页面，保存到 crawled_data_full.txt")
+print(f"\n✅ 完成！成功抓取 {success} 个页面，保存到 {output_path}")
 print(f"   总字符数: {sum(len(c) for c in all_content)}")

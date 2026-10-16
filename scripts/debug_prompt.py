@@ -6,6 +6,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from backend import rag
 
 question = "学校在哪个城市？"
+
+# search_docs 需要已初始化的向量库，先初始化（参照 test_rag.py）
+rag.init_vectorstore()
+
 context = rag.search_docs(question)
 prompt = rag.build_prompt(question, context)
 

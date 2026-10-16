@@ -36,7 +36,7 @@ def init_llm():
     global _llm
     _llm = ChatOpenAI(
         model=config.LLM_MODEL,
-        api_key=config.DASHSCOPE_API_KEY,
+        api_key=config.require_api_key(),
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         temperature=0.1,
         extra_body={
@@ -65,7 +65,7 @@ def search_docs(question: str) -> str:
         return ""
 
     headers = {
-        "Authorization": f"Bearer {config.DASHSCOPE_API_KEY}",
+        "Authorization": f"Bearer {config.require_api_key()}",
         "Content-Type": "application/json",
     }
     data = {

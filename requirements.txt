@@ -2,7 +2,9 @@ fastapi
 uvicorn[standard]
 pydantic
 python-dotenv
-requests
+requests==2.34.2
+trafilatura==2.2.0
+beautifulsoup4==4.15.0
 langchain
 langchain-community
 langchain-chroma

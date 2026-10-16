@@ -29,9 +29,16 @@ VECTOR_TOP_K = 5      # 向量检索召回条数
 RERANK_TOP_N = 3       # rerank 后保留条数（你评测过，top3 最优）
 
 # ========== 6. API Key ==========
+# 这里只读值，不在 import 阶段校验。
+# 否则 crawler.py 这类只需要路径常量的脚本，会因为缺 Key 而无法 import config。
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY")
-if not DASHSCOPE_API_KEY:
-    raise ValueError("DASHSCOPE_API_KEY 未设置，请检查 .env")
+
+
+def require_api_key() -> str:
+    """需要真正调用 DashScope 的地方（如 rag.init_llm）调用它，保持 fail-fast。"""
+    if not DASHSCOPE_API_KEY:
+        raise ValueError("DASHSCOPE_API_KEY 未设置，请检查 .env")
+    return DASHSCOPE_API_KEY
 
 # ========== 7. Rerank 通用 endpoint（不写死专属地址）==========
 RERANK_URL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
