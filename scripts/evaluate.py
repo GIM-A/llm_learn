@@ -96,18 +96,3 @@ for i, case in enumerate(test_cases):
     print()
 
 print(f"\n=== 准确率：{correct}/{len(test_cases)} = {correct / len(test_cases) * 100:.1f}% ===")
-# RAG 评测结果
-
-## 测试集
-- 20 道题，覆盖基础、中等、难题
-
-## 三种策略对比
-| 策略 | 准确率 |
-|---|---|
-| 纯向量检索 | 75% |
-| 向量检索 + rerank（top 3） | 85% |
-| 向量检索 + rerank（top 10） | 80% |
-
-## 结论
-- rerank 提升 10%
-- top_n 太大反而降准
