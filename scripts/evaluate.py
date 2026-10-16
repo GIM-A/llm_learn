@@ -3,27 +3,25 @@ import os
 import sys
 import argparse
 import requests
-import dashscope
 from pathlib import Path
-from dotenv import load_dotenv
 from langchain_community.embeddings import DashScopeEmbeddings
 from langchain_chroma import Chroma
 
 # 让脚本既能 `python -m scripts.evaluate` 运行，也能 `python scripts/evaluate.py` 运行
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend import config
+from backend import config, rag
 
-load_dotenv(dotenv_path=r"D:\llm_learn\.env")
-dashscope.api_key = os.environ["DASHSCOPE_API_KEY"]
-
-# 连接向量库
+# 连接向量库（路径由 config 从项目根推导，不再依赖当前工作目录）
 embeddings = DashScopeEmbeddings(model="text-embedding-v3")
 vectorstore = Chroma(
-    persist_directory="./chroma_db_langchain",
+    persist_directory=str(config.VECTOR_DIR),
     embedding_function=embeddings,
     collection_name="langchain"
 )
+
+# 调 LLM 用的客户端：直接复用 backend/rag.py 的 ChatOpenAI（qwen3.7-flash + OpenAI 兼容端点）
+llm = rag.init_llm()
 
 # 测试集
 test_cases = [
@@ -98,15 +96,18 @@ for i, case in enumerate(test_cases):
         print(f"[dry-run] Rerank HTTP 状态码 = {resp.status_code}")
     reranked = resp.json()["output"]["results"]
     context = "\n\n".join([item["document"]["text"] for item in reranked])
-    # 调 LLM
+    # 调 LLM（复用 backend/rag.py 的 ChatOpenAI + qwen3.7-flash + OpenAI 兼容端点）
     prompt = f"""请根据以下资料回答问题。
 
 资料：
 {context}
 
 问题：{question}"""
-    resp = dashscope.Generation.call(model="qwen-turbo", prompt=prompt)
-    answer = resp.output["text"]
+    response = llm.invoke([{"role": "user", "content": prompt}])
+    answer = response.content
+    if args.dry_run:
+        print(f"[dry-run] LLM 模型 = {response.response_metadata.get('model_name')}")
+        print(f"[dry-run] 回答 = {answer}")
 
     hit = all(kw in answer for kw in expected)
     if hit:
