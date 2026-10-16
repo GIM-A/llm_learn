@@ -20,10 +20,5 @@ chroma_db_langchain/
 # 实验 notebook
 *.ipynb
 
-# FastAPI 后端（部署用不到）
-rag_api.py
-app.py
-
 # 空文件
-remard.1
 .agents/
